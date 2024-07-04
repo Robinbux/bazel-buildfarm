@@ -9,3 +9,8 @@ backplane:
           value: "*"
 worker:
   publicName: "localhost:8981"
+  capabilities:
+    cas: true
+    execution: false
+
+

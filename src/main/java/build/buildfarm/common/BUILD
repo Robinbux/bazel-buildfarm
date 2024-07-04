@@ -80,6 +80,39 @@ java_library(
     ],
 )
 
+java_library(
+    name = "digestUtil",
+    srcs = ["DigestUtil.java"],
+    plugins = [":lombok"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//src/main/java/build/buildfarm/common/blake3",
+        "@com_google_googleapis//google/longrunning:longrunning_java_proto",
+        "@com_google_googleapis//google/rpc:rpc_java_proto",
+        "@maven//:com_github_jnr_jnr_constants",
+        "@maven//:com_github_jnr_jnr_ffi",
+        "@maven//:com_github_jnr_jnr_posix",
+        "@maven//:com_github_luben_zstd_jni",
+        "@maven//:com_github_oshi_oshi_core",
+        "@maven//:com_google_code_findbugs_jsr305",
+        "@maven//:com_google_guava_failureaccess",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:com_google_protobuf_protobuf_java_util",
+        "@maven//:commons_io_commons_io",
+        "@maven//:io_grpc_grpc_api",
+        "@maven//:io_grpc_grpc_context",
+        "@maven//:io_grpc_grpc_protobuf",
+        "@maven//:io_prometheus_simpleclient",
+        "@maven//:org_apache_commons_commons_compress",
+        "@maven//:org_apache_commons_commons_pool2",
+        "@maven//:org_projectlombok_lombok",
+        "@maven//:org_threeten_threetenbp",
+        "@maven//:redis_clients_jedis",
+        "@remoteapis//build/bazel/remote/execution/v2:remote_execution_java_proto",
+    ],
+)
+
 java_plugin(
     name = "lombok",
     generates_api = True,

@@ -44,14 +44,8 @@ import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.MINUTES;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
+import build.bazel.remote.execution.v2.*;
 import build.bazel.remote.execution.v2.BatchReadBlobsResponse.Response;
-import build.bazel.remote.execution.v2.Compressor;
-import build.bazel.remote.execution.v2.Digest;
-import build.bazel.remote.execution.v2.Directory;
-import build.bazel.remote.execution.v2.DirectoryNode;
-import build.bazel.remote.execution.v2.FileNode;
-import build.bazel.remote.execution.v2.RequestMetadata;
-import build.bazel.remote.execution.v2.SymlinkNode;
 import build.buildfarm.cas.ContentAddressableStorage;
 import build.buildfarm.cas.DigestMismatchException;
 import build.buildfarm.common.BuildfarmExecutors;
@@ -71,6 +65,8 @@ import build.buildfarm.common.io.FeedbackOutputStream;
 import build.buildfarm.common.io.FileStatus;
 import build.buildfarm.common.io.NamedFileKey;
 import build.buildfarm.v1test.BlobWriteKey;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Throwables;
 import com.google.common.cache.CacheBuilder;
@@ -112,14 +108,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.AbstractMap;
-import java.util.Collections;
-import java.util.Date;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.Stack;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
@@ -246,6 +235,13 @@ public abstract class CASFileCache implements ContentAddressableStorage {
   private transient long sizeInBytes = 0;
   private final transient Entry header = new SentinelEntry();
   private volatile long unreferencedEntryCount = 0;
+
+  private static final int MAX_ENTRIES = 10000;
+  private static final Cache<String, DigestFunction.Value> digest_to_function_map =
+          Caffeine.newBuilder()
+                  .expireAfterWrite(2, TimeUnit.MINUTES)
+                  .maximumSize(MAX_ENTRIES)
+                  .build();
 
   @GuardedBy("this")
   private long removedEntrySize = 0;
@@ -775,7 +771,8 @@ public abstract class CASFileCache implements ContentAddressableStorage {
 
   @Override
   public Write getWrite(
-      Compressor.Value compressor, Digest digest, UUID uuid, RequestMetadata requestMetadata)
+      Compressor.Value compressor, Digest digest, DigestFunction.Value digestFunction,
+      UUID uuid, RequestMetadata requestMetadata)
       throws EntryLimitException {
     if (digest.getSizeBytes() == 0) {
       return new CompleteWrite(0);
@@ -787,6 +784,7 @@ public abstract class CASFileCache implements ContentAddressableStorage {
       return writes.get(
           BlobWriteKey.newBuilder()
               .setDigest(digest)
+              .setDigestFunction(digestFunction)
               .setIdentifier(uuid.toString())
               .setCompressor(compressor)
               .build());
@@ -981,6 +979,8 @@ public abstract class CASFileCache implements ContentAddressableStorage {
               throws IOException {
             // caller will be the exclusive owner of this write stream. all other requests
             // will block until it is returned via a close.
+            // Map identifier to digest function
+            digest_to_function_map.put(key.getIdentifier(), key.getDigestFunction());
             if (closedFuture != null) {
               try {
                 while (!closedFuture.isDone()) {
@@ -1050,6 +1050,7 @@ public abstract class CASFileCache implements ContentAddressableStorage {
       CancellableOutputStream out,
       Compressor.Value compressor,
       Digest digest,
+      // TODO: Figure out.. DigestFunction digestFunction,
       UUID uuid,
       Consumer<Boolean> onClosed,
       BooleanSupplier isComplete,
@@ -2861,6 +2862,7 @@ public abstract class CASFileCache implements ContentAddressableStorage {
     Path writePath = getPath(key).resolveSibling(writeKey);
     final long committedSize;
     HashingOutputStream hashOut;
+    DigestUtil newDigestUtil = DigestUtil.forDigestFunction(digest_to_function_map.getIfPresent(writeId.toString()));
     if (!isReset && Files.exists(writePath)) {
       committedSize = Files.size(writePath);
       try (InputStream in = Files.newInputStream(writePath)) {
@@ -2869,14 +2871,14 @@ public abstract class CASFileCache implements ContentAddressableStorage {
         // open
         SkipOutputStream skipStream =
             new SkipOutputStream(Files.newOutputStream(writePath, APPEND), committedSize);
-        hashOut = digestUtil.newHashingOutputStream(skipStream);
+        hashOut = newDigestUtil.newHashingOutputStream(skipStream);
         ByteStreams.copy(in, hashOut);
         in.close();
         checkState(skipStream.isSkipped());
       }
     } else {
       committedSize = 0;
-      hashOut = digestUtil.newHashingOutputStream(Files.newOutputStream(writePath, CREATE));
+      hashOut = newDigestUtil.newHashingOutputStream(Files.newOutputStream(writePath, CREATE));
     }
     Supplier<String> hashSupplier = () -> hashOut.hash().toString();
     CountingOutputStream countingOut = new CountingOutputStream(committedSize, hashOut);
