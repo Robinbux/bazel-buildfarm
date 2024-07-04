@@ -405,9 +405,6 @@ public abstract class NodeInstance implements Instance {
       UUID uuid,
       RequestMetadata requestMetadata)
       throws EntryLimitException {
-//    Preconditions.checkState(
-//        digestFunction == DigestFunction.Value.UNKNOWN
-//            || digestFunction == digestUtil.getDigestFunction());
     return contentAddressableStorage.getWrite(compressor, digest, digestFunction, uuid, requestMetadata);
   }
 
