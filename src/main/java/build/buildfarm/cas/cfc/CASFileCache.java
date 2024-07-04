@@ -108,7 +108,14 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.*;
+import java.util.AbstractMap;
+import java.util.Collections;
+import java.util.Date;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.Stack;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
@@ -371,7 +378,8 @@ public abstract class CASFileCache implements ContentAddressableStorage {
 
     String hashComponent = components[0];
 
-    return digestUtil.build(hashComponent, size);
+    DigestUtil corrDigestUtil = DigestUtil.forDigestFunction(digest_to_function_map.getIfPresent(hashComponent));
+    return corrDigestUtil.build(hashComponent, size);
   }
 
   /**
@@ -980,7 +988,7 @@ public abstract class CASFileCache implements ContentAddressableStorage {
             // caller will be the exclusive owner of this write stream. all other requests
             // will block until it is returned via a close.
             // Map identifier to digest function
-            digest_to_function_map.put(key.getIdentifier(), key.getDigestFunction());
+            digest_to_function_map.put(key.getDigest().getHash(), key.getDigestFunction());
             if (closedFuture != null) {
               try {
                 while (!closedFuture.isDone()) {
@@ -1050,7 +1058,6 @@ public abstract class CASFileCache implements ContentAddressableStorage {
       CancellableOutputStream out,
       Compressor.Value compressor,
       Digest digest,
-      // TODO: Figure out.. DigestFunction digestFunction,
       UUID uuid,
       Consumer<Boolean> onClosed,
       BooleanSupplier isComplete,
@@ -2862,7 +2869,7 @@ public abstract class CASFileCache implements ContentAddressableStorage {
     Path writePath = getPath(key).resolveSibling(writeKey);
     final long committedSize;
     HashingOutputStream hashOut;
-    DigestUtil newDigestUtil = DigestUtil.forDigestFunction(digest_to_function_map.getIfPresent(writeId.toString()));
+    DigestUtil corrDigestUtil = DigestUtil.forDigestFunction(digest_to_function_map.getIfPresent(key));
     if (!isReset && Files.exists(writePath)) {
       committedSize = Files.size(writePath);
       try (InputStream in = Files.newInputStream(writePath)) {
@@ -2871,14 +2878,14 @@ public abstract class CASFileCache implements ContentAddressableStorage {
         // open
         SkipOutputStream skipStream =
             new SkipOutputStream(Files.newOutputStream(writePath, APPEND), committedSize);
-        hashOut = newDigestUtil.newHashingOutputStream(skipStream);
+        hashOut = corrDigestUtil.newHashingOutputStream(skipStream);
         ByteStreams.copy(in, hashOut);
         in.close();
         checkState(skipStream.isSkipped());
       }
     } else {
       committedSize = 0;
-      hashOut = newDigestUtil.newHashingOutputStream(Files.newOutputStream(writePath, CREATE));
+      hashOut = corrDigestUtil.newHashingOutputStream(Files.newOutputStream(writePath, CREATE));
     }
     Supplier<String> hashSupplier = () -> hashOut.hash().toString();
     CountingOutputStream countingOut = new CountingOutputStream(committedSize, hashOut);

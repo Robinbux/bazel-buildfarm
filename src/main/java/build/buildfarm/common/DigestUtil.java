@@ -194,10 +194,6 @@ public class DigestUtil {
   }
 
   public Digest build(String hexHash, long size) {
-    if (!hashFn.isValidHexDigest(hexHash)) {
-      throw new NumberFormatException(
-          String.format("[%s] is not a valid %s hash.", hexHash, hashFn.name()));
-    }
     return buildDigest(hexHash, size);
   }
 

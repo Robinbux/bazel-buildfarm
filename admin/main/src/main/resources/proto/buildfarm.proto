@@ -968,8 +968,6 @@ message BlobWriteKey {
   build.bazel.remote.execution.v2.Digest digest = 1;
 
   string identifier = 2;
-
-  build.bazel.remote.execution.v2.DigestFunction.Value digest_function = 3;
 }
 
 message OperationTimesBetweenStages {
